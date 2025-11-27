@@ -46,4 +46,4 @@ jobs:
             --platform managed \
             --port 8000 \
             --allow-unauthenticated \
-            --set-env-vars DB_HOST=34.46.63.69,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres,DB_PASSWORD=L@bvoTos1508api
+            --set-env-vars DB_HOST=34.46.63.69,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres,DB_PASSWORD=2kb6^v8E5zgIaPi
