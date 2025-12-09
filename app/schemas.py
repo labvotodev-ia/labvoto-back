@@ -55,3 +55,88 @@ class BuscaResponse(BaseModel):
     resultados: list
     total: int
 
+
+# ==================== SCHEMAS PARA ANÁLISE DE PARTIDOS ====================
+
+class MandatoInfo(BaseModel):
+    eleitos: int
+    total: int
+
+
+class MandatosNacional(BaseModel):
+    senador: MandatoInfo
+    deputado_federal: MandatoInfo
+
+
+class MandatosEstadual(BaseModel):
+    governador: MandatoInfo
+    deputado_estadual: MandatoInfo
+
+
+class MandatosMunicipal(BaseModel):
+    prefeito: MandatoInfo
+    vereador: Optional[MandatoInfo] = None
+
+
+class MandatosPartido(BaseModel):
+    nacional: MandatosNacional
+    estadual: MandatosEstadual
+    municipal: MandatosMunicipal
+
+
+class AnalisePartidoResponse(BaseModel):
+    partido: str
+    abrangencia: str
+    territorio: str
+    mandatos: MandatosPartido
+
+
+# ==================== SCHEMAS PARA BUSCA DE CANDIDATOS (BigQuery) ====================
+
+from typing import Any
+from datetime import date
+
+class CandidatoResponse(BaseModel):
+    """Schema para dados de candidato retornados do BigQuery"""
+    ano: Optional[int] = None
+    id_eleicao: Optional[str] = None
+    tipo_eleicao: Optional[str] = None
+    data_eleicao: Optional[date] = None
+    sigla_uf: Optional[str] = None
+    id_municipio: Optional[str] = None
+    id_municipio_tse: Optional[str] = None
+    titulo_eleitoral: Optional[str] = None
+    cpf: Optional[str] = None
+    sequencial: Optional[str] = None
+    numero: Optional[str] = None
+    nome: Optional[str] = None
+    nome_urna: Optional[str] = None
+    numero_partido: Optional[int] = None
+    sigla_partido: Optional[str] = None
+    
+    # Campos adicionais que podem existir na tabela
+    nome_partido: Optional[str] = None
+    cargo: Optional[str] = None
+    situacao: Optional[str] = None
+    situacao_turno: Optional[str] = None
+    votos: Optional[int] = None
+    genero: Optional[str] = None
+    grau_instrucao: Optional[str] = None
+    estado_civil: Optional[str] = None
+    cor_raca: Optional[str] = None
+    ocupacao: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    idade: Optional[int] = None
+    email: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+        extra = "allow"  # Permite campos adicionais não definidos
+
+
+class BuscaCandidatoResponse(BaseModel):
+    """Schema para resposta da busca de candidatos"""
+    resultados: list[dict]  # Lista flexível para aceitar todos os campos do BigQuery
+    total: int
+    termo_busca: str
+

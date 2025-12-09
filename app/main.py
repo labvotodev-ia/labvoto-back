@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.database import get_db, engine, Base
 from app import models, schemas, auth
+from app import bigquery_client
 
 # Criar tabelas no banco de dados
 Base.metadata.create_all(bind=engine)
@@ -216,4 +217,174 @@ def deletar_usuario(
     db.commit()
     
     return None
+
+
+# ==================== ANÁLISE DE PARTIDOS ====================
+
+def obter_dados_mockados_partido(partido: str, abrangencia: str, territorio: str) -> dict:
+    """Retorna dados mockados de mandatos para um partido"""
+    
+    # Dados base para NOVO (conforme exemplo da imagem)
+    dados_novo = {
+        "nacional": {
+            "senador": {"eleitos": 3, "total": 81},
+            "deputado_federal": {"eleitos": 18, "total": 513}
+        },
+        "estadual": {
+            "governador": {"eleitos": 2, "total": 27},
+            "deputado_estadual": {"eleitos": 25, "total": 1024}
+        },
+        "municipal": {
+            "prefeito": {"eleitos": 12, "total": 5569},
+            "vereador": {"eleitos": 0, "total": 0}
+        }
+    }
+    
+    # Dados mockados para PT
+    dados_pt = {
+        "nacional": {
+            "senador": {"eleitos": 8, "total": 81},
+            "deputado_federal": {"eleitos": 68, "total": 513}
+        },
+        "estadual": {
+            "governador": {"eleitos": 5, "total": 27},
+            "deputado_estadual": {"eleitos": 120, "total": 1024}
+        },
+        "municipal": {
+            "prefeito": {"eleitos": 250, "total": 5569},
+            "vereador": {"eleitos": 1500, "total": 0}
+        }
+    }
+    
+    # Dados mockados para PL
+    dados_pl = {
+        "nacional": {
+            "senador": {"eleitos": 12, "total": 81},
+            "deputado_federal": {"eleitos": 99, "total": 513}
+        },
+        "estadual": {
+            "governador": {"eleitos": 7, "total": 27},
+            "deputado_estadual": {"eleitos": 180, "total": 1024}
+        },
+        "municipal": {
+            "prefeito": {"eleitos": 400, "total": 5569},
+            "vereador": {"eleitos": 2500, "total": 0}
+        }
+    }
+    
+    # Mapeamento de partidos
+    dados_partidos = {
+        "NOVO": dados_novo,
+        "PT": dados_pt,
+        "PL": dados_pl
+    }
+    
+    # Retornar dados do partido ou dados padrão se não encontrado
+    return dados_partidos.get(partido.upper(), dados_novo)
+
+
+@app.get("/api/v1/analise-partido/{partido}/{abrangencia}/{territorio}", 
+         response_model=schemas.AnalisePartidoResponse, 
+         tags=["Partidos"])
+def analise_partido(
+    partido: str,
+    abrangencia: str,
+    territorio: str
+):
+    """
+    Endpoint de análise de partidos políticos
+    
+    Retorna os mandatos que um partido possui baseado nos filtros:
+    - partido: Nome do partido (ex: NOVO, PT, PL)
+    - abrangencia: Nacional, Estadual ou Municipal
+    - territorio: Brasil ou nome do estado (ex: São Paulo)
+    """
+    
+    # Validar abrangência
+    abrangencias_validas = ["Nacional", "Estadual", "Municipal"]
+    if abrangencia not in abrangencias_validas:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Abrangência deve ser uma das opções: {', '.join(abrangencias_validas)}"
+        )
+    
+    # Obter dados mockados
+    dados_mandatos = obter_dados_mockados_partido(partido, abrangencia, territorio)
+    
+    # Construir resposta
+    return {
+        "partido": partido.upper(),
+        "abrangencia": abrangencia,
+        "territorio": territorio,
+        "mandatos": {
+            "nacional": {
+                "senador": dados_mandatos["nacional"]["senador"],
+                "deputado_federal": dados_mandatos["nacional"]["deputado_federal"]
+            },
+            "estadual": {
+                "governador": dados_mandatos["estadual"]["governador"],
+                "deputado_estadual": dados_mandatos["estadual"]["deputado_estadual"]
+            },
+            "municipal": {
+                "prefeito": dados_mandatos["municipal"]["prefeito"],
+                "vereador": dados_mandatos["municipal"].get("vereador")
+            }
+        }
+    }
+
+
+# ==================== BUSCA DE POLÍTICOS (BigQuery) ====================
+
+@app.get("/api/v1/politicos/busca/{nome}", 
+         response_model=schemas.BuscaCandidatoResponse, 
+         tags=["Políticos"])
+def buscar_politico(
+    nome: str,
+    limit: int = 100
+):
+    """
+    Busca políticos/candidatos pelo nome no BigQuery.
+    
+    A busca é feita de forma parcial (LIKE) nos campos:
+    - nome: Nome completo do candidato
+    - nome_urna: Nome de urna do candidato
+    
+    Parâmetros:
+    - nome: Termo de busca (nome completo, parcial ou sobrenome)
+    - limit: Limite de resultados (padrão: 100, máximo: 500)
+    
+    Exemplos:
+    - /api/v1/politicos/busca/Guilherme Boulos
+    - /api/v1/politicos/busca/Boulos
+    - /api/v1/politicos/busca/Lula
+    """
+    
+    # Validar limite
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+    
+    # Validar termo de busca
+    if not nome or len(nome.strip()) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O termo de busca deve ter pelo menos 2 caracteres"
+        )
+    
+    try:
+        # Buscar no BigQuery
+        candidatos = bigquery_client.buscar_candidatos_por_nome(nome.strip(), limit)
+        
+        return {
+            "resultados": candidatos,
+            "total": len(candidatos),
+            "termo_busca": nome.strip()
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar candidatos: {str(e)}"
+        )
 
