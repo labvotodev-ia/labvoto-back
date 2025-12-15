@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from typing import Optional
 from app.database import get_db, engine, Base
 from app import models, schemas, auth
 from app import bigquery_client
@@ -284,20 +285,27 @@ def obter_dados_mockados_partido(partido: str, abrangencia: str, territorio: str
 
 
 @app.get("/api/v1/analise-partido/{partido}/{abrangencia}/{territorio}", 
-         response_model=schemas.AnalisePartidoResponse, 
+         response_model=schemas.AnalisePartidoResponseV2, 
          tags=["Partidos"])
 def analise_partido(
     partido: str,
     abrangencia: str,
-    territorio: str
+    territorio: str,
+    municipio: Optional[str] = None
 ):
     """
     Endpoint de análise de partidos políticos
     
-    Retorna os mandatos que um partido possui baseado nos filtros:
-    - partido: Nome do partido (ex: NOVO, PT, PL)
+    Retorna os cargos eleitos de um partido baseado nos filtros:
+    - partido: Sigla do partido (ex: NOVO, PT, PL)
     - abrangencia: Nacional, Estadual ou Municipal
-    - territorio: Brasil ou nome do estado (ex: São Paulo)
+    - territorio: Sigla da UF (para Estadual e Municipal) ou qualquer valor (para Nacional)
+    - municipio: Nome do município (obrigatório para abrangência Municipal, query parameter)
+    
+    Exemplos:
+    - /api/v1/analise-partido/NOVO/Nacional/Brasil
+    - /api/v1/analise-partido/NOVO/Estadual/SP
+    - /api/v1/analise-partido/NOVO/Municipal/SP?municipio=São Paulo
     """
     
     # Validar abrangência
@@ -308,29 +316,41 @@ def analise_partido(
             detail=f"Abrangência deve ser uma das opções: {', '.join(abrangencias_validas)}"
         )
     
-    # Obter dados mockados
-    dados_mandatos = obter_dados_mockados_partido(partido, abrangencia, territorio)
+    # Validar que para Municipal, municipio é obrigatório
+    if abrangencia == "Municipal" and not municipio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Para abrangência Municipal, o parâmetro 'municipio' é obrigatório (query parameter)"
+        )
     
-    # Construir resposta
-    return {
-        "partido": partido.upper(),
-        "abrangencia": abrangencia,
-        "territorio": territorio,
-        "mandatos": {
-            "nacional": {
-                "senador": dados_mandatos["nacional"]["senador"],
-                "deputado_federal": dados_mandatos["nacional"]["deputado_federal"]
-            },
-            "estadual": {
-                "governador": dados_mandatos["estadual"]["governador"],
-                "deputado_estadual": dados_mandatos["estadual"]["deputado_estadual"]
-            },
-            "municipal": {
-                "prefeito": dados_mandatos["municipal"]["prefeito"],
-                "vereador": dados_mandatos["municipal"].get("vereador")
-            }
+    try:
+        # Buscar dados no BigQuery
+        cargos_eleitos = bigquery_client.buscar_cargos_eleitos_partido(
+            partido=partido,
+            abrangencia=abrangencia,
+            territorio=territorio if abrangencia != "Nacional" else None,
+            municipio=municipio
+        )
+        
+        # Construir resposta
+        return {
+            "partido": partido.upper(),
+            "abrangencia": abrangencia,
+            "territorio": territorio,
+            "municipio": municipio,
+            "cargos_eleitos": cargos_eleitos
         }
-    }
+    
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar cargos eleitos: {str(e)}"
+        )
 
 
 # ==================== BUSCA DE POLÍTICOS (BigQuery) ====================

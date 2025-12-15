@@ -91,6 +91,21 @@ class AnalisePartidoResponse(BaseModel):
     mandatos: MandatosPartido
 
 
+# ==================== SCHEMAS PARA ANÁLISE DE PARTIDOS V2 (BigQuery) ====================
+
+class CargoEleito(BaseModel):
+    cargo: str
+    total_cargos_eleitos: int
+
+
+class AnalisePartidoResponseV2(BaseModel):
+    partido: str
+    abrangencia: str
+    territorio: str
+    municipio: Optional[str] = None
+    cargos_eleitos: list[CargoEleito]
+
+
 # ==================== SCHEMAS PARA BUSCA DE CANDIDATOS (BigQuery) ====================
 
 from typing import Any

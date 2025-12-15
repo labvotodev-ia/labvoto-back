@@ -75,3 +75,101 @@ def buscar_candidatos_por_nome(termo: str, limit: int = 100) -> list[dict]:
     
     return candidatos
 
+
+def buscar_cargos_eleitos_partido(
+    partido: str,
+    abrangencia: str,
+    territorio: str = None,
+    municipio: str = None
+) -> list[dict]:
+    """
+    Busca cargos eleitos de um partido no BigQuery baseado na abrangência.
+    
+    Args:
+        partido: Sigla do partido (ex: NOVO, PT, PL)
+        abrangencia: Nacional, Estadual ou Municipal
+        territorio: Sigla da UF (para Estadual e Municipal) ou None (para Nacional)
+        municipio: Nome do município (apenas para abrangência Municipal)
+    
+    Returns:
+        Lista de dicionários com 'cargo' e 'total_cargos_eleitos'
+    """
+    client = get_bigquery_client()
+    
+    # Base da query
+    query = """
+        SELECT
+            rc.cargo,
+            COUNT(rc.cargo) AS total_cargos_eleitos
+        FROM `endless-datum-477312-h2.labvoto.resultados_candidato` rc
+        LEFT JOIN `endless-datum-477312-h2.labvoto.dir_municipios` mn 
+            ON mn.id_municipio_tse = rc.id_municipio_tse
+        WHERE 
+            rc.ano IN (2012, 2016, 2020, 2024)
+            AND rc.sigla_partido = @partido
+            AND rc.resultado LIKE 'eleito%'
+    """
+    
+    # Parâmetros base
+    query_parameters = [
+        bigquery.ScalarQueryParameter("partido", "STRING", partido.upper())
+    ]
+    
+    # Adicionar filtros baseados na abrangência
+    if abrangencia == "Nacional":
+        query += """
+            AND rc.sigla_uf IS NOT NULL
+            AND mn.nome IS NOT NULL
+        """
+    elif abrangencia == "Estadual":
+        if not territorio:
+            raise ValueError("Para abrangência Estadual, o parâmetro 'territorio' (sigla_uf) é obrigatório")
+        query += """
+            AND rc.sigla_uf = @sigla_uf
+            AND mn.nome IS NOT NULL
+        """
+        query_parameters.append(
+            bigquery.ScalarQueryParameter("sigla_uf", "STRING", territorio.upper())
+        )
+    elif abrangencia == "Municipal":
+        if not territorio:
+            raise ValueError("Para abrangência Municipal, o parâmetro 'territorio' (sigla_uf) é obrigatório")
+        if not municipio:
+            raise ValueError("Para abrangência Municipal, o parâmetro 'municipio' é obrigatório")
+        query += """
+            AND rc.sigla_uf = @sigla_uf
+            AND mn.nome = @municipio
+        """
+        query_parameters.append(
+            bigquery.ScalarQueryParameter("sigla_uf", "STRING", territorio.upper())
+        )
+        query_parameters.append(
+            bigquery.ScalarQueryParameter("municipio", "STRING", municipio)
+        )
+    
+    # Finalizar query
+    query += """
+        GROUP BY
+            rc.cargo
+        ORDER BY
+            total_cargos_eleitos DESC
+    """
+    
+    # Configurar job com parâmetros
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=query_parameters
+    )
+    
+    # Executar query
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+    
+    # Converter para lista de dicionários
+    cargos_eleitos = []
+    for row in results:
+        cargos_eleitos.append({
+            "cargo": row.cargo,
+            "total_cargos_eleitos": row.total_cargos_eleitos
+        })
+    
+    return cargos_eleitos
