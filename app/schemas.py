@@ -155,3 +155,29 @@ class BuscaCandidatoResponse(BaseModel):
     total: int
     termo_busca: str
 
+
+# ==================== SCHEMAS PARA VOTOS PARTIDO ====================
+
+class VotosPartidoItem(BaseModel):
+    """Item individual de votos do partido"""
+    ano: int
+    sigla_uf: str
+    id_municipio_tse: str
+    cargo: str
+    partido: str
+    votos_partido: int
+    votos_validos: Optional[int] = None
+    prop_votos_validos: Optional[float] = None
+    perc_votos_validos: Optional[float] = None
+
+
+class VotosPartidoResponse(BaseModel):
+    """Schema para resposta de votos do partido"""
+    resultados: list[VotosPartidoItem]
+    total: int
+    ano: int
+    sigla_partido: str
+    sigla_uf: str
+    cargo: str
+    turnos: list[int]
+

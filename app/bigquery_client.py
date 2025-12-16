@@ -173,3 +173,114 @@ def buscar_cargos_eleitos_partido(
         })
     
     return cargos_eleitos
+
+
+def buscar_votos_partido(
+    sigla_partido: str,
+    sigla_uf: str,
+    cargo: str,
+    ano: int = 2024,
+    turnos: list[int] = None
+) -> list[dict]:
+    """
+    Busca votos de um partido por município com percentual de votos válidos.
+    
+    Args:
+        sigla_partido: Sigla do partido (ex: PODE, PT, PL)
+        sigla_uf: Sigla da UF (ex: AM, SP, RJ)
+        cargo: Cargo (ex: prefeito, governador, presidente)
+        ano: Ano da eleição (padrão: 2024)
+        turnos: Lista de turnos (padrão: [1, 2])
+    
+    Returns:
+        Lista de dicionários com os resultados da consulta
+    """
+    if turnos is None:
+        turnos = [1, 2]
+    
+    client = get_bigquery_client()
+    
+    # Query adaptada - convertendo DECLARE para parâmetros do BigQuery
+    # Como DECLARE não é suportado diretamente, vamos usar parâmetros e construir a query
+    query = """
+        WITH votos_partido AS (
+          SELECT
+            rcd.ano,
+            rcd.turno,
+            rcd.sigla_uf,
+            rcd.id_municipio_tse,
+            rcd.cargo,
+            rcd.sigla_partido AS partido,
+            SUM(rcd.votos) AS votos_partido
+          FROM `basedosdados.br_tse_eleicoes.resultados_candidato` rcd
+          WHERE rcd.ano = @ano_alvo
+            AND rcd.turno IN UNNEST(@turnos)
+            AND rcd.sigla_partido = @sigla_partido
+            AND rcd.sigla_uf = @sigla_uf
+            AND rcd.cargo = @cargo
+            AND rcd.resultado LIKE 'eleito%'
+          GROUP BY ano, turno, sigla_uf, id_municipio_tse, cargo, partido
+        ),
+        votos_validos_total AS (
+          SELECT
+            dvm.ano,
+            dvm.turno,
+            dvm.sigla_uf,
+            dvm.id_municipio_tse,
+            dvm.cargo,
+            SUM(dvm.votos_validos) AS votos_validos
+          FROM `basedosdados.br_tse_eleicoes.detalhes_votacao_municipio` dvm
+          WHERE dvm.ano = @ano_alvo
+            AND dvm.turno IN UNNEST(@turnos)
+          GROUP BY ano, turno, sigla_uf, id_municipio_tse, cargo
+        )
+        SELECT
+          v.ano,
+          v.sigla_uf,
+          v.id_municipio_tse,
+          v.cargo,
+          v.partido,
+          v.votos_partido,
+          t.votos_validos,
+          SAFE_DIVIDE(v.votos_partido, t.votos_validos) AS prop_votos_validos,
+          SAFE_MULTIPLY(SAFE_DIVIDE(v.votos_partido, t.votos_validos), 100) AS perc_votos_validos
+        FROM votos_partido v
+        LEFT JOIN votos_validos_total t
+          USING (ano, turno, sigla_uf, id_municipio_tse, cargo)
+        ORDER BY ano, sigla_uf, id_municipio_tse, cargo, perc_votos_validos DESC
+    """
+    
+    # Parâmetros para evitar SQL injection
+    query_parameters = [
+        bigquery.ScalarQueryParameter("ano_alvo", "INT64", ano),
+        bigquery.ArrayQueryParameter("turnos", "INT64", turnos),
+        bigquery.ScalarQueryParameter("sigla_partido", "STRING", sigla_partido.upper()),
+        bigquery.ScalarQueryParameter("sigla_uf", "STRING", sigla_uf.upper()),
+        bigquery.ScalarQueryParameter("cargo", "STRING", cargo.lower())
+    ]
+    
+    # Configurar job com parâmetros
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=query_parameters
+    )
+    
+    # Executar query
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+    
+    # Converter para lista de dicionários
+    votos_resultados = []
+    for row in results:
+        votos_resultados.append({
+            "ano": row.ano,
+            "sigla_uf": row.sigla_uf,
+            "id_municipio_tse": row.id_municipio_tse,
+            "cargo": row.cargo,
+            "partido": row.partido,
+            "votos_partido": row.votos_partido,
+            "votos_validos": row.votos_validos,
+            "prop_votos_validos": float(row.prop_votos_validos) if row.prop_votos_validos is not None else None,
+            "perc_votos_validos": float(row.perc_votos_validos) if row.perc_votos_validos is not None else None
+        })
+    
+    return votos_resultados

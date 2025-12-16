@@ -408,3 +408,114 @@ def buscar_politico(
             detail=f"Erro ao buscar candidatos: {str(e)}"
         )
 
+
+# ==================== VOTOS PARTIDO (BigQuery) ====================
+
+@app.get("/api/v1/votos-partido", 
+         response_model=schemas.VotosPartidoResponse, 
+         tags=["Partidos"])
+def buscar_votos_partido(
+    sigla_partido: str,
+    sigla_uf: str,
+    cargo: str,
+    ano: int = 2024,
+    turnos: Optional[str] = None
+):
+    """
+    Busca votos de um partido por município com percentual de votos válidos.
+    
+    Retorna os resultados agregados por município mostrando:
+    - Votos do partido
+    - Total de votos válidos
+    - Proporção e percentual de votos válidos
+    
+    Parâmetros:
+    - sigla_partido: Sigla do partido (ex: PODE, PT, PL) - obrigatório
+    - sigla_uf: Sigla da UF (ex: AM, SP, RJ) - obrigatório
+    - cargo: Cargo da eleição (ex: prefeito, governador, presidente) - obrigatório
+    - ano: Ano da eleição (padrão: 2024)
+    - turnos: Lista de turnos separados por vírgula (ex: "1,2" ou "1") - padrão: "1,2"
+    
+    Exemplos:
+    - /api/v1/votos-partido?sigla_partido=PODE&sigla_uf=AM&cargo=prefeito
+    - /api/v1/votos-partido?sigla_partido=PT&sigla_uf=SP&cargo=prefeito&ano=2020&turnos=1
+    """
+    
+    # Validar parâmetros obrigatórios
+    if not sigla_partido or not sigla_partido.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O parâmetro 'sigla_partido' é obrigatório"
+        )
+    
+    if not sigla_uf or not sigla_uf.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O parâmetro 'sigla_uf' é obrigatório"
+        )
+    
+    if not cargo or not cargo.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O parâmetro 'cargo' é obrigatório"
+        )
+    
+    # Validar ano
+    if ano < 2000 or ano > 2100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O ano deve estar entre 2000 e 2100"
+        )
+    
+    # Processar turnos
+    turnos_list = [1, 2]  # padrão
+    if turnos:
+        try:
+            turnos_list = [int(t.strip()) for t in turnos.split(",") if t.strip()]
+            if not turnos_list:
+                turnos_list = [1, 2]
+            # Validar turnos (geralmente 1 ou 2)
+            for t in turnos_list:
+                if t not in [1, 2]:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Os turnos devem ser 1 ou 2"
+                    )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Formato inválido para 'turnos'. Use números separados por vírgula (ex: '1,2')"
+            )
+    
+    try:
+        # Buscar dados no BigQuery
+        resultados = bigquery_client.buscar_votos_partido(
+            sigla_partido=sigla_partido.strip(),
+            sigla_uf=sigla_uf.strip(),
+            cargo=cargo.strip(),
+            ano=ano,
+            turnos=turnos_list
+        )
+        
+        # Construir resposta
+        return {
+            "resultados": resultados,
+            "total": len(resultados),
+            "ano": ano,
+            "sigla_partido": sigla_partido.upper(),
+            "sigla_uf": sigla_uf.upper(),
+            "cargo": cargo.lower(),
+            "turnos": turnos_list
+        }
+    
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar votos do partido: {str(e)}"
+        )
+
