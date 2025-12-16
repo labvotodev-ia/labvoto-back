@@ -284,3 +284,138 @@ def buscar_votos_partido(
         })
     
     return votos_resultados
+
+
+def buscar_custo_por_voto_eleitos(
+    anos: list[int],
+    cargos: list[str],
+    siglas_uf: list[str],
+    sigla_partido: str,
+) -> list[dict]:
+    """
+    Executa a query de custo por voto para candidatos eleitos, unificando votos
+    entre tabelas geral e municipal, e juntando com despesas.
+
+    Args:
+        anos: Lista de anos (ex: [2022])
+        cargos: Lista de cargos (ex: ["deputado federal"])
+        siglas_uf: Lista de UFs (ex: ["SP"])
+        sigla_partido: Sigla do partido (ex: "PODE")
+
+    Returns:
+        Lista de dicionários com o resultado da query
+    """
+    if not anos:
+        raise ValueError("O parâmetro 'anos' não pode estar vazio")
+    if not cargos:
+        raise ValueError("O parâmetro 'cargos' não pode estar vazio")
+    if not siglas_uf:
+        raise ValueError("O parâmetro 'siglas_uf' não pode estar vazio")
+    if not sigla_partido or not sigla_partido.strip():
+        raise ValueError("O parâmetro 'sigla_partido' é obrigatório")
+
+    client = get_bigquery_client()
+
+    query = """
+        WITH votos_unificados AS (
+          SELECT
+            r.ano,
+            r.cargo,
+            r.sigla_uf,
+            r.resultado,
+            r.sigla_partido,
+            r.sequencial_candidato,
+            SUM(r.votos) AS votos
+          FROM (
+            SELECT
+              ano,
+              cargo,
+              sigla_uf,
+              resultado,
+              sigla_partido,
+              sequencial_candidato,
+              CAST(NULL AS STRING) AS id_municipio,
+              votos
+            FROM `basedosdados.br_tse_eleicoes.resultados_candidato`
+            UNION ALL
+            SELECT
+              ano,
+              cargo,
+              sigla_uf,
+              resultado,
+              sigla_partido,
+              sequencial_candidato,
+              id_municipio,
+              votos
+            FROM `basedosdados.br_tse_eleicoes.resultados_candidato_municipio`
+          ) r
+          WHERE r.ano IN UNNEST(@anos)
+            AND r.cargo IN UNNEST(@cargos)
+            AND r.sigla_partido = @sigla_partido
+            AND r.resultado LIKE 'eleito%'
+            AND r.sigla_uf IN UNNEST(@siglas_uf)
+          GROUP BY 1, 2, 3, 4, 5, 6
+        ),
+        despesas AS (
+          SELECT
+            d.ano,
+            d.sigla_uf,
+            d.cargo,
+            d.sequencial_candidato,
+            SUM(d.valor_despesa) AS despesas_totais
+          FROM `basedosdados.br_tse_eleicoes.despesas_candidato` d
+          WHERE d.ano IN UNNEST(@anos)
+            AND d.cargo IN UNNEST(@cargos)
+            AND d.sigla_uf IN UNNEST(@siglas_uf)
+          GROUP BY 1, 2, 3, 4
+        )
+        SELECT
+          v.ano,
+          v.cargo,
+          v.sigla_uf,
+          cd.sigla_partido,
+          cd.numero AS numero_candidato,
+          cd.nome_urna,
+          v.votos,
+          d.despesas_totais,
+          SAFE_DIVIDE(d.despesas_totais, v.votos) AS custo_por_voto
+        FROM votos_unificados v
+        JOIN `basedosdados.br_tse_eleicoes.candidatos` cd
+          ON cd.sequencial = v.sequencial_candidato
+          AND cd.ano = v.ano
+        LEFT JOIN despesas d
+          ON d.ano = v.ano
+          AND d.sigla_uf = v.sigla_uf
+          AND d.cargo = v.cargo
+          AND d.sequencial_candidato = v.sequencial_candidato
+        ORDER BY v.ano, v.sigla_uf, v.votos DESC
+    """
+
+    query_parameters = [
+        bigquery.ArrayQueryParameter("anos", "INT64", anos),
+        bigquery.ArrayQueryParameter("cargos", "STRING", cargos),
+        bigquery.ArrayQueryParameter("siglas_uf", "STRING", siglas_uf),
+        bigquery.ScalarQueryParameter("sigla_partido", "STRING", sigla_partido.upper()),
+    ]
+
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+
+    saida: list[dict] = []
+    for row in results:
+        saida.append(
+            {
+                "ano": row.ano,
+                "cargo": row.cargo,
+                "sigla_uf": row.sigla_uf,
+                "sigla_partido": row.sigla_partido,
+                "numero_candidato": int(row.numero_candidato) if row.numero_candidato is not None else None,
+                "nome_urna": row.nome_urna,
+                "votos": int(row.votos) if row.votos is not None else 0,
+                "despesas_totais": float(row.despesas_totais) if row.despesas_totais is not None else None,
+                "custo_por_voto": float(row.custo_por_voto) if row.custo_por_voto is not None else None,
+            }
+        )
+
+    return saida

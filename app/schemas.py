@@ -181,3 +181,26 @@ class VotosPartidoResponse(BaseModel):
     cargo: str
     turnos: list[int]
 
+
+# ==================== SCHEMAS PARA CUSTO POR VOTO (BigQuery) ====================
+
+class CustoPorVotoItem(BaseModel):
+    ano: int
+    cargo: str
+    sigla_uf: str
+    sigla_partido: str
+    numero_candidato: Optional[int] = None
+    nome_urna: Optional[str] = None
+    votos: int
+    despesas_totais: Optional[float] = None
+    custo_por_voto: Optional[float] = None
+
+
+class CustoPorVotoResponse(BaseModel):
+    resultados: list[CustoPorVotoItem]
+    total: int
+    anos: list[int]
+    cargos: list[str]
+    siglas_uf: list[str]
+    sigla_partido: str
+
