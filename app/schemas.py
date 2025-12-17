@@ -204,3 +204,28 @@ class CustoPorVotoResponse(BaseModel):
     siglas_uf: list[str]
     sigla_partido: str
 
+
+# ==================== SCHEMAS PARA DISTRIBUIÇÃO FUNDO ELEITORAL (BigQuery) ====================
+
+class DistribuicaoFundoEleitoralItem(BaseModel):
+    ano: int
+    cargo: str
+    sigla_uf: str
+    resultado: Optional[str] = None
+    sigla_partido: str
+    numero_candidato: Optional[int] = None
+    nome_urna: Optional[str] = None
+    votos: int
+    valor_fe_fp: Optional[float] = None
+    despesas_totais: Optional[float] = None
+    custo_por_voto: Optional[float] = None
+
+
+class DistribuicaoFundoEleitoralResponse(BaseModel):
+    resultados: list[DistribuicaoFundoEleitoralItem]
+    total: int
+    anos: list[int]
+    cargos: list[str]
+    siglas_uf: list[str]
+    sigla_partido: str
+

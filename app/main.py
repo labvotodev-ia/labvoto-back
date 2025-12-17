@@ -596,3 +596,81 @@ def buscar_custo_por_voto(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao buscar custo por voto: {str(e)}",
         )
+
+
+# ==================== DISTRIBUIÇÃO FUNDO ELEITORAL (BigQuery) ====================
+
+@app.get(
+    "/api/v1/distribuicao-fundo-eleitoral",
+    response_model=schemas.DistribuicaoFundoEleitoralResponse,
+    tags=["Partidos"],
+)
+def buscar_distribuicao_fundo_eleitoral(
+    anos: str,
+    cargos: str,
+    siglas_uf: str,
+    sigla_partido: str,
+):
+    """
+    Lista a distribuição de fundo eleitoral (FE/FP) por candidato, com parâmetros via URL.
+
+    Parâmetros (querystring):
+    - anos: lista separada por vírgula (ex: "2022" ou "2020,2022")
+    - cargos: lista separada por vírgula (ex: "deputado federal")
+    - siglas_uf: lista separada por vírgula (ex: "SP" ou "SP,RJ")
+    - sigla_partido: sigla do partido (ex: "PODE")
+
+    Exemplo:
+    - /api/v1/distribuicao-fundo-eleitoral?anos=2022&cargos=deputado%20federal&siglas_uf=SP&sigla_partido=PODE
+    """
+
+    def _split_csv(value: str) -> list[str]:
+        return [p.strip() for p in value.split(",") if p.strip()]
+
+    if not anos or not anos.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O parâmetro 'anos' é obrigatório")
+    if not cargos or not cargos.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O parâmetro 'cargos' é obrigatório")
+    if not siglas_uf or not siglas_uf.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O parâmetro 'siglas_uf' é obrigatório")
+    if not sigla_partido or not sigla_partido.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O parâmetro 'sigla_partido' é obrigatório")
+
+    # Parse anos
+    try:
+        anos_list = [int(x) for x in _split_csv(anos)]
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato inválido para 'anos'. Use números separados por vírgula (ex: '2022,2024')",
+        )
+
+    # Parse cargos
+    cargos_list = [c.lower() for c in _split_csv(cargos)]
+
+    # Parse siglas_uf
+    siglas_uf_list = [u.upper() for u in _split_csv(siglas_uf)]
+
+    try:
+        resultados = bigquery_client.buscar_distribuicao_fundo_eleitoral(
+            anos=anos_list,
+            cargos=cargos_list,
+            siglas_uf=siglas_uf_list,
+            sigla_partido=sigla_partido.strip(),
+        )
+
+        return {
+            "resultados": resultados,
+            "total": len(resultados),
+            "anos": anos_list,
+            "cargos": cargos_list,
+            "siglas_uf": siglas_uf_list,
+            "sigla_partido": sigla_partido.upper(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar distribuição do fundo eleitoral: {str(e)}",
+        )
