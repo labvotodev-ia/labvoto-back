@@ -674,3 +674,46 @@ def buscar_distribuicao_fundo_eleitoral(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao buscar distribuição do fundo eleitoral: {str(e)}",
         )
+
+
+# ==================== LISTAR PARTIDOS (BigQuery) ====================
+
+@app.get(
+    "/api/v1/partidos",
+    response_model=schemas.PartidosResponse,
+    tags=["Partidos"],
+)
+def listar_partidos(ano: int):
+    """
+    Lista todos os partidos cadastrados no BigQuery filtrados por ano.
+    
+    Retorna nome, sigla, número e ano de todos os partidos únicos,
+    ordenados por sigla.
+    
+    Parâmetros:
+    - ano: Ano de referência (ex: 2016, 2020, 2024) - obrigatório
+    
+    Exemplo:
+    - /api/v1/partidos?ano=2016
+    - /api/v1/partidos?ano=2024
+    """
+    # Validar ano
+    if ano < 1980 or ano > 2100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O ano deve estar entre 1980 e 2100"
+        )
+    
+    try:
+        partidos = bigquery_client.listar_partidos(ano=ano)
+        
+        return {
+            "resultados": partidos,
+            "total": len(partidos),
+            "ano": ano
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao listar partidos: {str(e)}",
+        )

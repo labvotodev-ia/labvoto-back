@@ -575,3 +575,51 @@ def buscar_distribuicao_fundo_eleitoral(
         )
 
     return saida
+
+
+def listar_partidos(ano: int) -> list[dict]:
+    """
+    Lista todos os partidos da tabela partidos filtrados por ano.
+    
+    Args:
+        ano: Ano de referência (ex: 2016, 2020, 2024)
+    
+    Returns:
+        Lista de dicionários com 'nome', 'sigla', 'numero' e 'ano'
+    """
+    client = get_bigquery_client()
+    
+    # Query com filtro por ano
+    query = """
+        SELECT DISTINCT 
+            nome, 
+            sigla, 
+            numero,
+            ano
+        FROM `endless-datum-477312-h2.labvoto.partidos`
+        WHERE ano = @ano
+        ORDER BY sigla
+    """
+    
+    # Parâmetros para evitar SQL injection
+    query_parameters = [
+        bigquery.ScalarQueryParameter("ano", "INT64", ano)
+    ]
+    
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
+    
+    # Executar query
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+    
+    # Converter para lista de dicionários
+    partidos = []
+    for row in results:
+        partidos.append({
+            "nome": row.nome,
+            "sigla": row.sigla,
+            "numero": int(row.numero) if row.numero is not None else None,
+            "ano": row.ano
+        })
+    
+    return partidos

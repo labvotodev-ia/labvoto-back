@@ -229,3 +229,18 @@ class DistribuicaoFundoEleitoralResponse(BaseModel):
     siglas_uf: list[str]
     sigla_partido: str
 
+
+# ==================== SCHEMAS PARA PARTIDOS (BigQuery) ====================
+
+class PartidoItem(BaseModel):
+    nome: str
+    sigla: str
+    numero: int
+    ano: int
+
+
+class PartidosResponse(BaseModel):
+    resultados: list[PartidoItem]
+    total: int
+    ano: int
+
